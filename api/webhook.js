@@ -24,6 +24,18 @@ function detectCategory(name) {
   return "Other";
 }
 
+function getISTNow(date = new Date()) {
+  return {
+    date: date.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }),
+    time: date.toLocaleTimeString("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }),
+  };
+}
+
 function parseExpense(text) {
   const m1 = text.match(/^(.+?)\s+(\d+(?:\.\d+)?)$/);
   const m2 = text.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
@@ -52,10 +64,10 @@ async function getSheet() {
 
 async function saveExpense(expense) {
   const sheet = await getSheet();
-  const now   = new Date();
+  const { date, time } = getISTNow();
   await sheet.addRow({
-    Date:     now.toISOString().split("T")[0],
-    Time:     now.toTimeString().slice(0, 5),
+    Date:     date,
+    Time:     time,
     Name:     expense.name,
     Amount:   expense.amount,
     Category: expense.category,
@@ -67,12 +79,19 @@ async function buildSummary(period) {
   const rows  = await sheet.getRows();
   if (!rows.length) return "📭 No expenses yet!";
 
-  const now   = new Date();
+  const ist = getISTNow();
   const filtered = rows.filter(r => {
-    const d = new Date(r.get("Date"));
-    if (period === "today") return r.get("Date") === now.toISOString().split("T")[0];
-    if (period === "week")  { const w = new Date(now); w.setDate(w.getDate()-7); return d >= w; }
-    if (period === "month") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    const rowDate = r.get("Date");
+    if (period === "today") return rowDate === ist.date;
+    if (period === "week") {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      return rowDate >= getISTNow(weekAgo).date;
+    }
+    if (period === "month") {
+      const [year, month] = ist.date.split("-");
+      return rowDate.startsWith(`${year}-${month}`);
+    }
   });
 
   if (!filtered.length) return "📭 No expenses for this period!";
@@ -98,7 +117,7 @@ async function reply(chatId, text) {
   });
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
   const { message } = req.body;
